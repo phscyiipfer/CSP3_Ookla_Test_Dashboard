@@ -394,6 +394,13 @@
                 <h2 class="text-sm sm:text-base font-bold text-white">Interactive Test Location Map</h2>
                 <span class="text-xs text-slate-400">Click any row in the log table to center and inspect map pin</span>
             </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <input id="layer-file" type="file" multiple accept=".csv,.tsv,.txt,.tab,.zip,.shp,.dbf,.prj,.cpg,.gpkg,.geojson,.json" class="hidden">
+                <button id="layer-btn" type="button" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition shadow">📂 Import layers</button>
+                <span class="text-[11px] text-slate-400">CSV / tab-delimited, Shapefile (.zip or .shp+.dbf+.prj), GeoPackage (.gpkg), GeoJSON — or drop files on the map</span>
+                <span id="layer-status" class="text-xs text-slate-300"></span>
+            </div>
+            <div id="layer-list" class="flex flex-wrap gap-2"></div>
             <div id="map"></div>
         </section>
 
@@ -452,6 +459,7 @@
                         <li><b class="text-white">Filter the data</b> with date, start/end hour, status, testers, servers, cities, technologies and keyword search. In the multi-select lists, Ctrl/Cmd + click picks several items. <b>Deselect All Multi-Selects</b> clears the lists; <b>Clear Filters</b> resets everything. All summary numbers, charts, the map and the table show only the filtered samples.</li>
                         <li><b class="text-white">Use the charts</b>: they show the latest 15 filtered tests (throughput, latency and signal strength).</li>
                         <li><b class="text-white">Explore the map</b>: choose <i>Map</i>, <i>Satellite</i> or <i>Dark</i> at the top-right. The round crosshair button (top-left) shows your own location. Click a pin for details, or click a row in the log table to jump to its pin.</li>
+                        <li><b class="text-white">Import your own map layers</b>: press <b>📂 Import layers</b> above the map (or drop files on the map) to add a CSV / tab-delimited file with <i>lat</i> and <i>lon</i> columns, a Shapefile (<i>.zip</i>, or the .shp, .dbf and .prj files selected together), a GeoPackage (<i>.gpkg</i>) or a GeoJSON file. Each layer gets a chip with a show/hide tick, a colour picker, a zoom button and a remove button. Click a feature to see its attributes. Layers last until you reload the page.</li>
                         <li><b class="text-white">Add remarks</b> in the last table column: press <i>Edit</i>, type, then <i>Save</i>. The remark is written back to the Google Sheet.</li>
                         <li><b class="text-white">Export</b> with <b>Export CSV</b> or <b>Export Excel</b>. The file contains only the filtered rows, with every column of the sheet. On iPhone/iPad the share sheet opens so you can choose Save to Files.</li>
                         <li><b class="text-white">Hide what you don't need</b>: every section has a <i>Hide / Show</i> button beside its title, and the header has <b>Collapse all / Expand all</b>. Your choice is remembered in this browser.</li>
@@ -473,7 +481,7 @@
                     <div><b class="text-white">Charts</b>
                         <ul class="list-disc pl-5 text-slate-300"><li>Throughput (download on the left axis, upload on the right), latency, and signal strength (RSRP) for the latest 15 filtered tests.</li></ul></div>
                     <div><b class="text-white">Map</b>
-                        <ul class="list-disc pl-5 text-slate-300"><li>Google map tiles with Map, Satellite and Dark views; green, amber and red pins for pass, below threshold and failed; a status legend; a Find my location button; pins open a detail popup.</li></ul></div>
+                        <ul class="list-disc pl-5 text-slate-300"><li>Google map tiles with Map, Satellite and Dark views; green, amber and red pins for pass, below threshold and failed; a status legend; a Find my location button; pins open a detail popup.</li><li>Import extra layers (CSV / tab-delimited, Shapefile, GeoPackage, GeoJSON) with colour, show/hide, zoom and remove controls, and attribute popups.</li></ul></div>
                     <div><b class="text-white">Test log table</b>
                         <ul class="list-disc pl-5 text-slate-300"><li>All filtered tests with status badges; click a row to focus its map pin; editable remarks saved to the sheet.</li></ul></div>
                     <div><b class="text-white">Export</b>
@@ -500,6 +508,7 @@
                             <li><b>Export failed – sheet changed</b>: press Refresh Data, then export again.</li>
                             <li><b>Map shows grey squares</b>: the map tiles could not load; check your connection and refresh the page.</li>
                             <li><b>Find my location does nothing</b>: allow location access for this page in the browser (it needs a secure page, and some embedded views block it).</li>
+                            <li><b>Layer import fails</b>: CSV needs <i>lat</i>/<i>lon</i> (or <i>latitude</i>/<i>longitude</i>) columns in degrees, or a WKT/geometry column. A Shapefile needs its .prj (use a .zip, or select .shp + .dbf + .prj together). MapInfo TAB/MAP files cannot be read in a browser: export them to GeoPackage, Shapefile or CSV first. Shapefile and GeoPackage import need an internet connection to load a helper library.</li>
                             <li><b>Remark did not save</b>: the button shows Retry; check your connection and try again.</li>
                             <li><b>Numbers look low</b>: check the filters; they apply to every number, chart and the map, even when the filter section is hidden.</li>
                         </ul></div>
@@ -1149,7 +1158,19 @@
                     mapInstance.flyTo([lat, lon], 16, { duration: 1.5 });
                 },
                 err => {
-                    alert('Unable to retrieve location: ' + err.message);
+                    const inFrame = window.self !== window.top;
+                    const isLocalFile = !/^https?:$/.test(location.protocol); // file:, content: (e.g. a file opened from WhatsApp)
+                    const hint = isLocalFile
+                        ? ' This page was opened as a local file (for example from WhatsApp or Downloads). Chrome does not allow location for local files. Open the dashboard from an https web address instead.'
+                        : (!window.isSecureContext
+                            ? ' This page is not on a secure (https) address, so the browser blocks location.'
+                            : (inFrame ? ' This page is shown inside another page (a frame), which can block location. Open the dashboard link directly in its own browser tab.' : ''));
+                    const msgs = {
+                        1: 'Location is blocked for this page. Click the lock / site-settings icon in the address bar, set Location to Allow, then reload and try again. Also make sure location is turned on in your device settings.' + hint,
+                        2: 'Your device could not work out its position. Turn on location services (GPS or Wi-Fi) and try again.',
+                        3: 'Finding your location took too long. Try again.'
+                    };
+                    alert(msgs[err.code] || ('Unable to retrieve location: ' + err.message));
                 },
                 { enableHighAccuracy: true }
             );
@@ -1347,6 +1368,410 @@
                     `CSP3_Ookla_Log_${new Date().toISOString().slice(0,10)}.xlsx`);
             }).catch(err => alert('Export failed: ' + err.message));
         }
+    </script>
+
+    <script>
+    // =====================  IMPORT EXTRA MAP LAYERS  =====================
+    // Adds your own layers on top of the map: CSV / tab-delimited text (lat/lon columns or a WKT column),
+    // Shapefile (.zip, or .shp + .dbf + .prj together), GeoPackage (.gpkg) and GeoJSON.
+    // MapInfo TAB/MAP files cannot be read by a browser: export them to GeoPackage, Shapefile or CSV first.
+    // Imported layers are kept only until the page is reloaded.
+    const LAYER_COLORS = ['#38bdf8', '#f472b6', '#a3e635', '#fb923c', '#c084fc', '#2dd4bf', '#facc15', '#f87171'];
+    const MAX_FEATURES = 50000;
+    const SHPJS_URL = 'https://cdn.jsdelivr.net/npm/shpjs@4.0.4/dist/shp.min.js';
+    const SQLJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/';
+    const PROJ4_URL = 'https://cdn.jsdelivr.net/npm/proj4@2.9.2/dist/proj4.js';
+    // Common coordinate systems used locally (Philippines UTM and PRS92), for GeoPackages that are not in WGS84
+    const KNOWN_SRS = {
+        32650: '+proj=utm +zone=50 +datum=WGS84 +units=m +no_defs',
+        32651: '+proj=utm +zone=51 +datum=WGS84 +units=m +no_defs',
+        32652: '+proj=utm +zone=52 +datum=WGS84 +units=m +no_defs',
+        4683: '+proj=longlat +ellps=clrk66 +no_defs',
+        3121: '+proj=tmerc +lat_0=0 +lon_0=117 +k=0.99995 +x_0=500000 +y_0=0 +ellps=clrk66 +units=m +no_defs',
+        3122: '+proj=tmerc +lat_0=0 +lon_0=119 +k=0.99995 +x_0=500000 +y_0=0 +ellps=clrk66 +units=m +no_defs',
+        3123: '+proj=tmerc +lat_0=0 +lon_0=121 +k=0.99995 +x_0=500000 +y_0=0 +ellps=clrk66 +units=m +no_defs',
+        3124: '+proj=tmerc +lat_0=0 +lon_0=123 +k=0.99995 +x_0=500000 +y_0=0 +ellps=clrk66 +units=m +no_defs',
+        3125: '+proj=tmerc +lat_0=0 +lon_0=125 +k=0.99995 +x_0=500000 +y_0=0 +ellps=clrk66 +units=m +no_defs'
+    };
+    const importedLayers = [];
+    let colorSeq = 0;
+    const scriptCache = {};
+
+    // ---- PURE HELPERS START ----
+    function escHtml(v) {
+        return String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function detectDelimiter(text) {
+        const first = text.replace(/^\uFEFF/, '').split(/\r?\n/, 1)[0] || '';
+        const counts = { ',': 0, '\t': 0, ';': 0 };
+        let inQuote = false;
+        for (const ch of first) {
+            if (ch === '"') inQuote = !inQuote;
+            else if (!inQuote && ch in counts) counts[ch]++;
+        }
+        return Object.keys(counts).reduce((a, b) => counts[b] > counts[a] ? b : a, ',');
+    }
+
+    function parseDelimited(text, delim) {
+        text = text.replace(/^\uFEFF/, '');
+        const rows = [];
+        let row = [], field = '', inQuote = false;
+        for (let i = 0; i < text.length; i++) {
+            const c = text[i];
+            if (inQuote) {
+                if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuote = false; }
+                else field += c;
+            } else if (c === '"') inQuote = true;
+            else if (c === delim) { row.push(field); field = ''; }
+            else if (c === '\n' || c === '\r') {
+                if (c === '\r' && text[i + 1] === '\n') i++;
+                row.push(field); rows.push(row); row = []; field = '';
+            } else field += c;
+        }
+        if (field !== '' || row.length) { row.push(field); rows.push(row); }
+        const headers = (rows.shift() || []).map(h => h.trim());
+        const objs = rows.filter(r => r.some(v => v.trim() !== '')).map(r => {
+            const o = {};
+            headers.forEach((h, i) => { o[h] = (r[i] === undefined ? '' : r[i]).trim(); });
+            return o;
+        });
+        return { headers, rows: objs };
+    }
+
+    function findCoordCols(headers) {
+        const norm = h => h.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const find = names => { for (const n of names) { const h = headers.find(x => norm(x) === n); if (h) return h; } return null; };
+        return {
+            lat: find(['latitude', 'lat', 'latdd', 'latdeg', 'gpslat', 'ycoord', 'ycoordinate', 'y']),
+            lon: find(['longitude', 'lon', 'lng', 'long', 'londd', 'londeg', 'gpslon', 'gpslong', 'xcoord', 'xcoordinate', 'x']),
+            wkt: find(['wkt', 'geom', 'geometry', 'thegeom', 'wktgeometry'])
+        };
+    }
+
+    function parseWKT(w) {
+        const m = /^\s*(?:SRID=\d+;)?\s*([A-Za-z]+)\s*(?:Z|M|ZM)?\s*(\(.*\)|EMPTY)\s*$/s.exec(String(w || ''));
+        if (!m || /^EMPTY$/i.test(m[2])) return null;
+        const type = m[1].toUpperCase();
+        const num = '-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?';
+        const tuple = new RegExp('(' + num + ')\\s+(' + num + ')(?:\\s+' + num + '){0,2}', 'g');
+        let arr;
+        try { arr = JSON.parse(m[2].replace(tuple, '[$1,$2]').replace(/\(/g, '[').replace(/\)/g, ']')); } catch (e) { return null; }
+        switch (type) {
+            case 'POINT': return { type: 'Point', coordinates: arr[0] };
+            case 'LINESTRING': return { type: 'LineString', coordinates: arr };
+            case 'POLYGON': return { type: 'Polygon', coordinates: arr };
+            case 'MULTIPOINT': return { type: 'MultiPoint', coordinates: Array.isArray(arr[0][0]) ? arr.map(a => a[0]) : arr };
+            case 'MULTILINESTRING': return { type: 'MultiLineString', coordinates: arr };
+            case 'MULTIPOLYGON': return { type: 'MultiPolygon', coordinates: arr };
+            default: return null;
+        }
+    }
+
+    function rowsToGeoJSON(headers, rows) {
+        const cols = findCoordCols(headers);
+        const features = [];
+        let skipped = 0;
+        if (cols.wkt && !(cols.lat && cols.lon)) {
+            rows.forEach(r => {
+                const g = parseWKT(r[cols.wkt]);
+                if (!g) { skipped++; return; }
+                const p = Object.assign({}, r); delete p[cols.wkt];
+                features.push({ type: 'Feature', properties: p, geometry: g });
+            });
+        } else if (cols.lat && cols.lon) {
+            rows.forEach(r => {
+                const toNum = v => parseFloat(String(v).trim().replace(',', '.')); // also accepts a decimal comma (14,5)
+                const lat = toNum(r[cols.lat]), lon = toNum(r[cols.lon]);
+                if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) { skipped++; return; }
+                features.push({ type: 'Feature', properties: Object.assign({}, r), geometry: { type: 'Point', coordinates: [lon, lat] } });
+            });
+            if (!features.length && rows.length) {
+                throw new Error('The latitude/longitude values are not valid degrees (they may be projected metres). Export the file with WGS84 latitude/longitude.');
+            }
+        } else {
+            throw new Error('Could not find coordinates. Name the columns lat and lon (or latitude and longitude), or add a WKT/geometry column. Columns found: ' + headers.slice(0, 12).join(', '));
+        }
+        return { geojson: { type: 'FeatureCollection', features }, skipped };
+    }
+
+    function firstCoord(g) {
+        if (!g) return null;
+        if (g.type === 'GeometryCollection') { for (const x of g.geometries) { const c = firstCoord(x); if (c) return c; } return null; }
+        let c = g.coordinates;
+        while (Array.isArray(c) && Array.isArray(c[0])) c = c[0];
+        return Array.isArray(c) && typeof c[0] === 'number' ? c : null;
+    }
+
+    function checkWGS84(fc) {
+        for (const f of fc.features) {
+            const c = firstCoord(f.geometry);
+            if (c) {
+                if (Math.abs(c[0]) > 180 || Math.abs(c[1]) > 90) {
+                    throw new Error('The coordinates are not latitude/longitude (they look projected). For a Shapefile include the .prj file; otherwise re-export as WGS84 (EPSG:4326).');
+                }
+                return;
+            }
+        }
+    }
+
+    function mapCoords(g, fn) {
+        const walk = c => (typeof c[0] === 'number' ? fn(c) : c.map(walk));
+        if (!g) return g;
+        if (g.type === 'GeometryCollection') return { type: g.type, geometries: g.geometries.map(x => mapCoords(x, fn)) };
+        return { type: g.type, coordinates: walk(g.coordinates) };
+    }
+
+    function mercatorInverse(c) {
+        const R = 6378137;
+        return [c[0] / R * 180 / Math.PI, (2 * Math.atan(Math.exp(c[1] / R)) - Math.PI / 2) * 180 / Math.PI];
+    }
+
+    // --- GeoPackage geometry (GP header + WKB) ---
+    function readWKB(dv, cur) {
+        const le = dv.getUint8(cur.o) === 1; cur.o += 1;
+        let t = dv.getUint32(cur.o, le); cur.o += 4;
+        let hasZ = !!(t & 0x80000000), hasM = !!(t & 0x40000000);
+        if (t & 0x20000000) cur.o += 4; // EWKB SRID
+        t &= 0x0FFFFFFF;
+        if (t >= 3000) { hasZ = hasM = true; t -= 3000; } else if (t >= 2000) { hasM = true; t -= 2000; } else if (t >= 1000) { hasZ = true; t -= 1000; }
+        const dims = 2 + (hasZ ? 1 : 0) + (hasM ? 1 : 0);
+        const pt = () => { const x = dv.getFloat64(cur.o, le), y = dv.getFloat64(cur.o + 8, le); cur.o += 8 * dims; return [x, y]; };
+        const count = () => { const n = dv.getUint32(cur.o, le); cur.o += 4; return n; };
+        const pts = () => { const n = count(), a = []; for (let i = 0; i < n; i++) a.push(pt()); return a; };
+        const parts = () => { const n = count(), a = []; for (let i = 0; i < n; i++) a.push(readWKB(dv, cur)); return a; };
+        switch (t) {
+            case 1: return { type: 'Point', coordinates: pt() };
+            case 2: return { type: 'LineString', coordinates: pts() };
+            case 3: { const n = count(), rings = []; for (let i = 0; i < n; i++) rings.push(pts()); return { type: 'Polygon', coordinates: rings }; }
+            case 4: return { type: 'MultiPoint', coordinates: parts().map(g => g.coordinates) };
+            case 5: return { type: 'MultiLineString', coordinates: parts().map(g => g.coordinates) };
+            case 6: return { type: 'MultiPolygon', coordinates: parts().map(g => g.coordinates) };
+            case 7: return { type: 'GeometryCollection', geometries: parts() };
+            default: throw new Error('Unsupported geometry type ' + t);
+        }
+    }
+
+    function parseGpkgGeom(bytes) {
+        if (!bytes || bytes.length < 9 || bytes[0] !== 0x47 || bytes[1] !== 0x50) return null;
+        const flags = bytes[3];
+        if ((flags >> 4) & 1) return null; // empty geometry
+        const envSize = [0, 32, 48, 48, 64][(flags >> 1) & 7] || 0;
+        const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        return readWKB(dv, { o: 8 + envSize });
+    }
+    // ---- PURE HELPERS END ----
+
+    function loadScript(url) {
+        if (!scriptCache[url]) {
+            scriptCache[url] = new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = url;
+                s.onload = resolve;
+                s.onerror = () => { delete scriptCache[url]; reject(new Error('Could not load a helper library (' + url.split('/')[2] + '). Check your internet connection.')); };
+                document.head.appendChild(s);
+            });
+        }
+        return scriptCache[url];
+    }
+
+    function setLayerStatus(msg, isError) {
+        const el = document.getElementById('layer-status');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.className = 'text-xs ' + (isError ? 'text-rose-400' : 'text-slate-300');
+    }
+
+    function normalizeGeoJSON(obj) {
+        if (obj.type === 'FeatureCollection') return obj;
+        if (obj.type === 'Feature') return { type: 'FeatureCollection', features: [obj] };
+        if (obj.type) return { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: obj }] };
+        throw new Error('This is not a valid GeoJSON file.');
+    }
+
+    // ---- format importers: each returns [{ name, geojson, note }] ----
+    async function importDelimited(file) {
+        const text = await file.text();
+        if (/^\s*!(table|version)/i.test(text) || /Definition Table/i.test(text.slice(0, 2000))) {
+            throw new Error('This is a MapInfo TAB descriptor. Browsers cannot read MapInfo TAB/MAP files. In MapInfo or QGIS export the table to GeoPackage, Shapefile or CSV, then import that file.');
+        }
+        const { headers, rows } = parseDelimited(text, detectDelimiter(text));
+        if (!rows.length) throw new Error('The file has no data rows.');
+        const { geojson, skipped } = rowsToGeoJSON(headers, rows);
+        return [{ name: file.name.replace(/\.[^.]+$/, ''), geojson, note: skipped ? skipped + ' row(s) without valid coordinates skipped' : '' }];
+    }
+
+    async function importGeoJSONFile(file) {
+        const fc = normalizeGeoJSON(JSON.parse(await file.text()));
+        checkWGS84(fc);
+        return [{ name: file.name.replace(/\.[^.]+$/, ''), geojson: fc }];
+    }
+
+    async function importShapefileParts(parts) {
+        await loadScript(SHPJS_URL);
+        const prj = parts.prj ? await parts.prj.text() : undefined;
+        const cpg = parts.cpg ? (await parts.cpg.text()).trim() : undefined;
+        const geoms = window.shp.parseShp(await parts.shp.arrayBuffer(), prj);
+        let fc;
+        if (parts.dbf) fc = window.shp.combine([geoms, window.shp.parseDbf(await parts.dbf.arrayBuffer(), cpg)]);
+        else fc = { type: 'FeatureCollection', features: geoms.map(g => ({ type: 'Feature', properties: {}, geometry: g })) };
+        checkWGS84(fc);
+        return [{ name: parts.shp.name.replace(/\.shp$/i, ''), geojson: fc }];
+    }
+
+    async function importZip(file) {
+        await loadScript(SHPJS_URL);
+        const res = await window.shp(await file.arrayBuffer());
+        const list = Array.isArray(res) ? res : [res];
+        return list.map(fc => {
+            checkWGS84(fc);
+            return { name: fc.fileName || file.name.replace(/\.[^.]+$/, ''), geojson: fc };
+        });
+    }
+
+    async function makeTransformer(srsId, srsRow) {
+        const org = srsRow ? String(srsRow[0]).toUpperCase() : 'EPSG';
+        const code = srsRow ? Number(srsRow[1]) : srsId;
+        if (srsId <= 0 || (org === 'EPSG' && (code === 4326 || code === 4979))) return null;
+        if (org === 'EPSG' && code === 3857) return mercatorInverse;
+        await loadScript(PROJ4_URL);
+        let def = srsRow ? srsRow[2] : null;
+        if (org === 'EPSG' && KNOWN_SRS[code]) { window.proj4.defs('EPSG:' + code, KNOWN_SRS[code]); def = 'EPSG:' + code; }
+        if (!def || def === 'undefined') throw new Error('The GeoPackage has no usable coordinate system definition (srs_id ' + srsId + ').');
+        let tf;
+        try { tf = window.proj4(def); } catch (e) { throw new Error('Unsupported coordinate system in the GeoPackage (' + org + ':' + code + '). Re-export it as WGS84 (EPSG:4326).'); }
+        return c => tf.inverse(c);
+    }
+
+    async function importGpkg(file) {
+        await loadScript(SQLJS_URL + 'sql-wasm.js');
+        const SQL = await window.initSqlJs({ locateFile: f => SQLJS_URL + f });
+        const db = new SQL.Database(new Uint8Array(await file.arrayBuffer()));
+        const out = [];
+        try {
+            const tables = db.exec("SELECT c.table_name, g.column_name, g.srs_id FROM gpkg_contents c JOIN gpkg_geometry_columns g ON g.table_name = c.table_name WHERE c.data_type = 'features'");
+            if (!tables.length) throw new Error('No feature layers found in this GeoPackage.');
+            const base = file.name.replace(/\.[^.]+$/, '');
+            for (const [table, geomCol, srsId] of tables[0].values) {
+                const srs = db.exec('SELECT organization, organization_coordsys_id, definition FROM gpkg_spatial_ref_sys WHERE srs_id = ?', [srsId]);
+                const tf = await makeTransformer(srsId, srs.length ? srs[0].values[0] : null);
+                const res = db.exec('SELECT * FROM "' + String(table).replace(/"/g, '""') + '" LIMIT ' + (MAX_FEATURES + 1));
+                if (!res.length) continue;
+                const { columns, values } = res[0];
+                const gi = columns.indexOf(geomCol);
+                const features = [];
+                let bad = 0;
+                for (const row of values) {
+                    let g = null;
+                    try { g = parseGpkgGeom(row[gi]); } catch (e) { g = null; }
+                    if (!g) { bad++; continue; }
+                    if (tf) g = mapCoords(g, c => { const p = tf(c); return [p[0], p[1]]; });
+                    const props = {};
+                    columns.forEach((c, i) => { if (i !== gi && !(row[i] instanceof Uint8Array)) props[c] = row[i]; });
+                    features.push({ type: 'Feature', properties: props, geometry: g });
+                }
+                const fc = { type: 'FeatureCollection', features };
+                checkWGS84(fc);
+                out.push({ name: tables[0].values.length > 1 ? base + ': ' + table : base, geojson: fc, note: bad ? bad + ' feature(s) without geometry skipped' : '' });
+            }
+        } finally { db.close(); }
+        return out;
+    }
+
+    // ---- map layer handling ----
+    function popupHtml(layerName, props) {
+        const rows = Object.entries(props || {}).slice(0, 40).map(([k, v]) =>
+            '<tr><td style="padding-right:8px;opacity:.7;vertical-align:top">' + escHtml(k) + '</td><td style="word-break:break-all">' + escHtml(v === null || v === undefined ? '' : v) + '</td></tr>').join('');
+        return '<div style="font-size:12px"><div style="font-weight:700;margin-bottom:4px">' + escHtml(layerName) + '</div><div style="max-height:180px;overflow:auto"><table>' + (rows || '<tr><td>No attributes</td></tr>') + '</table></div></div>';
+    }
+
+    function addImportedLayer(item) {
+        let features = item.geojson.features || [];
+        let note = item.note || '';
+        if (features.length > MAX_FEATURES) { features = features.slice(0, MAX_FEATURES); note = (note ? note + '; ' : '') + 'showing the first ' + MAX_FEATURES.toLocaleString(); }
+        if (!features.length) throw new Error('"' + item.name + '" has no features to show.');
+        const color = LAYER_COLORS[colorSeq++ % LAYER_COLORS.length];
+        const renderer = L.canvas({ padding: 0.5 });
+        const group = L.geoJSON({ type: 'FeatureCollection', features }, {
+            renderer,
+            style: () => ({ color, weight: 2, fillColor: color, fillOpacity: 0.25 }),
+            pointToLayer: (f, latlng) => L.circleMarker(latlng, { renderer, radius: 5, color: '#0f172a', weight: 1, fillColor: color, fillOpacity: 0.85 }),
+            onEachFeature: (f, layer) => layer.bindPopup(() => popupHtml(item.name, f.properties), { maxWidth: 320 })
+        }).addTo(mapInstance);
+        const rec = { name: item.name, count: features.length, note, color, group, visible: true };
+        importedLayers.push(rec);
+        try { const b = group.getBounds(); if (b.isValid()) mapInstance.fitBounds(b, { padding: [30, 30], maxZoom: 17 }); } catch (e) {}
+        renderLayerList();
+        return rec;
+    }
+
+    function renderLayerList() {
+        const box = document.getElementById('layer-list');
+        if (!box) return;
+        box.textContent = '';
+        importedLayers.forEach(rec => {
+            const chip = document.createElement('div');
+            chip.className = 'flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200';
+            const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = rec.visible; cb.title = 'Show / hide layer';
+            cb.addEventListener('change', () => { rec.visible = cb.checked; if (rec.visible) mapInstance.addLayer(rec.group); else mapInstance.removeLayer(rec.group); });
+            const name = document.createElement('span'); name.textContent = rec.name + ' (' + rec.count.toLocaleString() + ')'; name.title = rec.note || rec.name;
+            const col = document.createElement('input'); col.type = 'color'; col.value = rec.color; col.title = 'Layer colour'; col.style.cssText = 'width:20px;height:20px;padding:0;border:0;background:none';
+            col.addEventListener('input', () => {
+                rec.color = col.value;
+                rec.group.eachLayer(l => { if (l instanceof L.CircleMarker) l.setStyle({ fillColor: rec.color }); else if (l.setStyle) l.setStyle({ color: rec.color, fillColor: rec.color }); });
+            });
+            const zoom = document.createElement('button'); zoom.type = 'button'; zoom.textContent = '⌖'; zoom.title = 'Zoom to layer'; zoom.className = 'px-1.5 border border-slate-600 rounded hover:bg-slate-700';
+            zoom.addEventListener('click', () => { try { mapInstance.fitBounds(rec.group.getBounds(), { padding: [30, 30], maxZoom: 17 }); } catch (e) {} });
+            const del = document.createElement('button'); del.type = 'button'; del.textContent = '✕'; del.title = 'Remove layer'; del.className = 'px-1.5 border border-slate-600 rounded hover:bg-rose-800';
+            del.addEventListener('click', () => { mapInstance.removeLayer(rec.group); importedLayers.splice(importedLayers.indexOf(rec), 1); renderLayerList(); setLayerStatus(''); });
+            chip.append(cb, col, name, zoom, del);
+            box.appendChild(chip);
+        });
+    }
+
+    async function importFiles(fileList) {
+        const files = Array.from(fileList || []);
+        if (!files.length) return;
+        if (typeof mapInstance === 'undefined' || !mapInstance) { setLayerStatus('The map is not ready yet. Wait for the data to load, then try again.', true); return; }
+        const ext = f => (f.name.split('.').pop() || '').toLowerCase();
+        const base = f => f.name.replace(/\.[^.]+$/, '').toLowerCase();
+        const jobs = [], errors = [], shpSets = {};
+        files.forEach(f => { if (['shp', 'dbf', 'prj', 'cpg'].includes(ext(f))) (shpSets[base(f)] = shpSets[base(f)] || {})[ext(f)] = f; });
+        Object.keys(shpSets).forEach(b => {
+            if (shpSets[b].shp) jobs.push({ name: shpSets[b].shp.name, run: () => importShapefileParts(shpSets[b]) });
+            else errors.push(b + ': select the .shp file together with its .dbf and .prj, or import the shapefile as a .zip.');
+        });
+        files.forEach(f => {
+            const e = ext(f);
+            if (e === 'zip') jobs.push({ name: f.name, run: () => importZip(f) });
+            else if (e === 'gpkg') jobs.push({ name: f.name, run: () => importGpkg(f) });
+            else if (e === 'geojson' || e === 'json') jobs.push({ name: f.name, run: () => importGeoJSONFile(f) });
+            else if (['csv', 'tsv', 'txt', 'tab'].includes(e)) jobs.push({ name: f.name, run: () => importDelimited(f) });
+            else if (!['shp', 'dbf', 'prj', 'cpg'].includes(e)) errors.push(f.name + ': unsupported file type (use CSV, tab-delimited text, Shapefile .zip, GeoPackage or GeoJSON).');
+        });
+        let added = 0;
+        for (const job of jobs) {
+            setLayerStatus('Importing ' + job.name + '…');
+            try {
+                const items = await job.run();
+                items.forEach(it => { addImportedLayer(it); added++; });
+            } catch (err) { errors.push(job.name + ': ' + (err && err.message ? err.message : err)); }
+        }
+        setLayerStatus(added ? ('Imported ' + added + ' layer' + (added > 1 ? 's' : '') + (errors.length ? ' – ' + errors.length + ' file(s) failed' : '')) : '', false);
+        if (errors.length) { setLayerStatus((added ? 'Imported ' + added + ' layer(s). ' : '') + errors.length + ' file(s) could not be imported.', true); alert(errors.join('\n\n')); }
+    }
+
+    (function wireLayerImport() {
+        const btn = document.getElementById('layer-btn'), input = document.getElementById('layer-file'), mapEl = document.getElementById('map');
+        if (!btn || !input) return;
+        btn.addEventListener('click', () => input.click());
+        input.addEventListener('change', () => { importFiles(input.files).finally(() => { input.value = ''; }); });
+        if (mapEl) {
+            ['dragenter', 'dragover'].forEach(ev => mapEl.addEventListener(ev, e => { e.preventDefault(); mapEl.style.outline = '3px dashed #818cf8'; }));
+            ['dragleave', 'drop'].forEach(ev => mapEl.addEventListener(ev, e => { e.preventDefault(); mapEl.style.outline = ''; }));
+            mapEl.addEventListener('drop', e => importFiles(e.dataTransfer.files));
+        }
+    })();
     </script>
 
     <script>
